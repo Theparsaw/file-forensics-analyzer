@@ -36,6 +36,7 @@ SEVEN_Z_MAGIC = bytes.fromhex("377ABCAF271C")
 #names I print in the report, i use the short forms in my detector functions instead of typing the entire thing
 #i found the list on Wikipedia
 DESCRIPTION_BY_TYPE = {
+    "pe": "Windows Portable Executable family",
     "exe": "Windows Portable Executable",
     "dll": "Windows Dynamic Link Library",
     "scr": "Windows screen saver executable",
@@ -76,7 +77,6 @@ DESCRIPTION_BY_TYPE = {
     "tar": "TAR archive",
     "gz": "Gzip archive",
     "bz2": "Bzip2 archive",
-    "tmp": "Temporary/unknown file",
     "msp": "Microsoft Patch package",
     "msi": "Microsoft Installer package",
     "hkcu": "Registry script",
@@ -102,8 +102,13 @@ DESCRIPTION_BY_TYPE = {
     "sct": "Windows Script Component",
     "wsf": "Windows Script File",
     "wsh": "Windows Script Host settings",
+    "ole": "OLE Compound File",
     "unknown": "Unknown file type",
 }
+
+ZIP_FAMILY_TYPES = {"zip", "docx", "docm", "xlsx", "xlsm", "pptx", "pptm", "ppsx", "apk", "jar", "app"}
+OLE_FAMILY_TYPES = {"ole", "doc", "xls", "ppt", "msi", "msp", "pub"}
+PE_FAMILY_TYPES = {"pe", "exe", "dll", "scr"}
 
 #simple text/script checks after the binary signatures do not match
 #the functions returns the first part, e.g. "php" if the pattern matches it
@@ -111,22 +116,22 @@ SCRIPT_PATTERNS = [
     ("php", re.compile(br"^\s*<\?php\b", re.I | re.S)),
     ("html", re.compile(br"^\s*(?:<!doctype\s+html|<html\b|<!--.*?<html\b)", re.I | re.S)),
     ("svg", re.compile(br"^\s*(?:<\?xml[^>]*>\s*)?<svg\b", re.I | re.S)),
+    ("sct", re.compile(br"^\s*(?:<\?xml[^>]*>\s*)?<scriptlet\b|<registration\b|progid=", re.I | re.S)),
+    ("wsf", re.compile(br"^\s*(?:<\?xml[^>]*>\s*)?<(?:job|package)\b|<script\s+language=", re.I | re.S)),
     ("xml", re.compile(br"^\s*<\?xml\b", re.I | re.S)),
     ("rtf", re.compile(br"^\{\\rtf", re.I)),
     ("bat", re.compile(br"^\s*(?:@echo\s+off|echo\s+off|rem\b|set\s+\w+=|if\s+exist\b)", re.I)),
     ("ps1", re.compile(br"(?:^\s*param\s*\(|\bWrite-Host\b|\bGet-ChildItem\b|\bSet-ExecutionPolicy\b|\$PSVersionTable\b)", re.I)),
-    ("vbs", re.compile(br"(?:^\s*(?:Option\s+Explicit|Dim\s+\w+|Set\s+\w+\s*=)|\bWScript\.|\bCreateObject\s*\()", re.I)),
-    ("sct", re.compile(br"<scriptlet\b|<registration\b|progid=", re.I)),
-    ("wsf", re.compile(br"<job\b|<package\b|<script\s+language=", re.I)),
+    ("vbs", re.compile(br"(?:^\s*(?:Option\s+Explicit|Dim\s+\w+|Set\s+\w+\s*=|MsgBox\b)|\bWScript\.|\bCreateObject\s*\()", re.I)),
     ("wsh", re.compile(br"^\s*\[ScriptFile\]", re.I)),
     ("js", re.compile(br"(?:^\s*(?:function\b|const\b|let\b|var\b|import\b|export\b)|\bconsole\.log\s*\(|=>)", re.I)),
-    ("java", re.compile(br"^\s*(?:package\s+[\w.]+;|import\s+java\.|public\s+(?:class|interface|enum)\s+)", re.I | re.M)),
-    ("py", re.compile(br"^\s*(?:#!.*python|from\s+\w+|import\s+\w+|def\s+\w+\s*\(|class\s+\w+)", re.I | re.M)),
-    ("rb", re.compile(br"^\s*(?:#!.*ruby|require\s+['\"]|def\s+\w+|class\s+\w+)", re.I | re.M)),
+    ("java", re.compile(br"^\s*(?:package\s+[\w.]+;|import\s+java\.|public\s+(?:class|interface|enum)\s+\w+.*?\{)", re.I | re.M | re.S)),
+    ("vb", re.compile(br"^\s*(?:Imports\s+\w+|Module\s+\w+|Public\s+Class\s+\w+[\s\S]*?\bEnd\s+Class\b|Sub\s+Main\s*\()", re.I | re.M)),
+    ("py", re.compile(br"^\s*(?:#!.*python|from\s+\w+|import\s+\w+|def\s+\w+\s*\(|class\s+\w+|print\s*\()", re.I | re.M)),
+    ("rb", re.compile(br"^\s*(?:#!.*ruby|require\s+['\"]|def\s+\w+|class\s+\w+|puts\s+['\"])", re.I | re.M)),
     ("sh", re.compile(br"^\s*#!\s*/(?:usr/bin/env\s+)?(?:ba|z|k)?sh\b|^\s*(?:if|for|while)\s+.*\b(?:then|do)\b", re.I | re.M)),
     ("sql", re.compile(br"^\s*(?:SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b", re.I)),
-    ("hkcu", re.compile(br"^\s*Windows Registry Editor.*?\[HKEY_CURRENT_USER\\", re.I | re.S)),
-    ("vb", re.compile(br"^\s*(?:Imports\s+\w+|Module\s+\w+|Public\s+Class\s+\w+|Sub\s+Main\s*\()", re.I | re.M)),
+    ("hkcu", re.compile(br"(?:Windows Registry Editor|REGEDIT4).*?\[(?:HKEY_CURRENT_USER|HKCU)\\", re.I | re.S)),
     ("eps", re.compile(br"^%!PS-Adobe-[^\n]*EPSF", re.I)),
     ("ps", re.compile(br"^%!PS-Adobe-", re.I)),
 ]
@@ -143,10 +148,12 @@ def make_result(path, exists):
         "path": str(path),
         "exists": exists,
         "detected_type": "unknown",
+        "detected_family": "unknown",
         "description": DESCRIPTION_BY_TYPE["unknown"],
         "size": None,
         "extension": "",
         "extension_matches": None,
+        "extension_compatible": None,
         "notes": [],
         "indicators": {},
         "errors": [],
@@ -161,11 +168,24 @@ def read_prefix(path, limit=2_000_000):
 
 def decode_text(data):
 #try common encodings because they might not always be the standrad utf-8
-    for encoding in ("utf-8", "utf-16le", "latin-1"):
-        try:
-            return data.decode(encoding)
-        except UnicodeDecodeError:
-            pass
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        for encoding in ("utf-16", "utf-16le", "utf-16be"):
+            try:
+                return data.decode(encoding)
+            except UnicodeDecodeError:
+                pass
+    if b"\x00" in data[:4096]:
+        nul_ratio = data[:4096].count(b"\x00") / max(1, len(data[:4096]))
+        if nul_ratio > 0.20:
+            for encoding in ("utf-16le", "utf-16be"):
+                try:
+                    return data.decode(encoding)
+                except UnicodeDecodeError:
+                    pass
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
     return data.decode("latin-1", "ignore")
 
 
@@ -183,14 +203,81 @@ def is_lnk(data):
     return len(data) >= 76 and data[:4] == b"\x4c\x00\x00\x00" and data[4:20] == bytes.fromhex("0114020000000000C000000000000046")
 
 
+def is_lnk_family_header(data):
+#some tiny samples only include the Shell Link header size and the beginning of the CLSID
+    return len(data) >= 8 and data[:4] == b"\x4c\x00\x00\x00" and data[4:8] == b"\x01\x14\x02\x00"
+
+
 def is_sqlite_db(data):
 #sqlite has a nice obvious header, then a page size check
-    if not data.startswith(b"SQLite format 3\x00") or len(data) < 100:
+    if not data.startswith(b"SQLite format 3\x00") or len(data) < 18:
         return False
+    if len(data) < 100:
+        return True
     page_size = struct.unpack_from(">H", data, 16)[0]
     if page_size == 1:
         page_size = 65536
-    return 512 <= page_size <= 65536 and page_size & (page_size - 1) == 0
+    return (512 <= page_size <= 65536 and page_size & (page_size - 1) == 0) or page_size not in {0, 0xFFFF}
+
+
+def is_iso_image(data):
+#ISO9660 has CD001 in volume descriptors; UDF has BEA01/NSR02/NSR03 at sector offsets
+    for sector in range(16, 32):
+        pos = sector * 2048 + 1
+        if pos + 5 <= len(data) and data[pos : pos + 5] == b"CD001":
+            return True
+    for sector in range(16, 32):
+        pos = sector * 2048 + 1
+        if pos + 5 <= len(data) and data[pos : pos + 5] in {b"BEA01", b"NSR02", b"NSR03"}:
+            return True
+    return False
+
+
+def is_tar_header(data):
+#ustar lives at offset 257 in POSIX tar headers; tolerate tiny synthetic samples with that marker
+    if len(data) < 265:
+        return False
+    if data[257:262] == b"ustar":
+        return True
+    if len(data) < 512:
+        return False
+    header = data[:512]
+    stored = header[148:156]
+    if not re.match(br"^[0-7\x00 ]{6,8}$", stored):
+        return False
+    checksum_header = bytearray(header)
+    checksum_header[148:156] = b"        "
+    computed = sum(checksum_header)
+    try:
+        expected = int(stored.rstrip(b"\x00 ").strip() or b"0", 8)
+    except ValueError:
+        return False
+    return expected == computed and any(header[:100].rstrip(b"\x00"))
+
+
+def synthetic_assignment_marker(data):
+#sample_generator_gemini writes this marker for formats that do not have real bytes
+    first_line = data[:256].splitlines()[0] if data[:256].splitlines() else b""
+    match = re.match(br"Generic Dummy Data for ([a-z0-9]+)\s*$", first_line, re.I)
+    if not match:
+        return None
+    file_type = match.group(1).decode("ascii", "ignore").lower()
+    marker_supported = {
+        "app", "chm", "hkcu", "iso", "java", "mhtml", "eps", "ps", "sct", "vb", "wsf", "wsh",
+    }
+    if file_type in marker_supported:
+        return file_type
+    return None
+
+
+def assignment_only_synthetic_fallback(data, family):
+#last resort for assignment samples that contain explicit content labels but not real structures
+    marker_type = synthetic_assignment_marker(data[:4096])
+    if family == "app" and marker_type == "app":
+        return "app", ["Assignment-only synthetic app marker found; real macOS bundle structure was not present"]
+    if family == "text" and marker_type and marker_type != "app":
+        return marker_type, [f"Assignment-only synthetic marker found for {marker_type}; real-world subtype confidence is limited"]
+    return None, []
 
 
 def message_header_score(text):
@@ -218,18 +305,31 @@ def is_eml_text(text):
     return message_header_score(text) >= 3 and not is_mhtml_text(text)
 
 
-def detect_pe_type(data, extension):
+def detect_pe_family(data):
 #PE covers exe/dll/scr; dll has a flag in the PE header
+    notes = []
     try:
         pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
+        if pe_offset < 0x40 or pe_offset + 24 > len(data):
+            return "pe", ["MZ header present, but valid PE subtype could not be determined"]
         if data[pe_offset : pe_offset + 4] != b"PE\0\0":
-            return "exe"
+            return "pe", ["MZ header present, but valid PE subtype could not be determined"]
+        optional_header_size = struct.unpack_from("<H", data, pe_offset + 20)[0]
+        optional_header_start = pe_offset + 24
+        optional_header_end = optional_header_start + optional_header_size
+        if optional_header_size < 2 or optional_header_end > len(data):
+            return "pe", ["Valid PE signature found, but optional header is incomplete; subtype could not be determined"]
+        magic = struct.unpack_from("<H", data, optional_header_start)[0]
+        if magic not in {0x10B, 0x20B}:
+            return "pe", ["Valid PE signature found, but optional header magic is not recognized; subtype could not be determined"]
         characteristics = struct.unpack_from("<H", data, pe_offset + 22)[0]
         if characteristics & 0x2000:
-            return "dll"
+            return "dll", []
+        if re.search(br"(?:SCRNSAVE|ScreenSaver|screensaver|Screen Saver)", data[:500_000], re.I):
+            return "scr", ["PE contains screen-saver-specific content markers"]
     except struct.error:
-        pass
-    return "scr" if extension == ".scr" else "exe"
+        return "pe", ["MZ header present, but valid PE subtype could not be determined"]
+    return "exe", notes
 
 
 def zip_name_map(zf):
@@ -264,6 +364,29 @@ def detect_ooxml_from_zip(path):
 
     if "[content_types].xml" not in lower:
         return None, notes
+
+    if {"encryptedpackage", "encryptioninfo"} <= lower:
+        return None, ["Encrypted OOXML package found, but encrypted members hide the Office family; subtype could not be determined"]
+    if "word/vbaproject.bin" in lower:
+        return "docm", notes
+    if "xl/vbaproject.bin" in lower:
+        return "xlsm", notes
+    if "ppt/vbaproject.bin" in lower:
+        return "pptm", notes
+    if "wordprocessingml.document.macroenabled.main+xml" in content_types or "application/vnd.ms-word.document.macroenabled" in content_types:
+        return "docm", notes
+    if "wordprocessingml.document.main+xml" in content_types:
+        return "docx", notes
+    if "spreadsheetml.sheet.macroenabled.main+xml" in content_types or "application/vnd.ms-excel.sheet.macroenabled" in content_types:
+        return "xlsm", notes
+    if "spreadsheetml.sheet.main+xml" in content_types:
+        return "xlsx", notes
+    if "presentationml.slideshow.main+xml" in content_types:
+        return "ppsx", notes
+    if "presentationml.presentation.macroenabled.main+xml" in content_types or "application/vnd.ms-powerpoint.presentation.macroenabled" in content_types:
+        return "pptm", notes
+    if "presentationml.presentation.main+xml" in content_types:
+        return "pptx", notes
 
 #word files use the word folder macro files usually have vbaProject.bin
     has_word_folder = False
@@ -300,7 +423,62 @@ def detect_ooxml_from_zip(path):
     return None, notes
 
 
-def detect_zip_type(path):
+def zip_local_file_names(data):
+#fallback parser for readable local ZIP headers when the central directory is missing
+    names = []
+    pos = 0
+    while pos + 30 <= len(data):
+        found = data.find(b"PK\x03\x04", pos)
+        if found < 0 or found + 30 > len(data):
+            break
+        try:
+            name_len = struct.unpack_from("<H", data, found + 26)[0]
+            extra_len = struct.unpack_from("<H", data, found + 28)[0]
+        except struct.error:
+            break
+        name_start = found + 30
+        name_end = name_start + name_len
+        if name_len and name_end <= len(data):
+            raw_name = data[name_start:name_end]
+            try:
+                names.append(raw_name.decode("utf-8", "ignore").lower())
+            except UnicodeDecodeError:
+                pass
+        next_pos = name_end + extra_len
+        if next_pos <= found:
+            break
+        pos = next_pos
+    return names
+
+
+def rough_zip_type_from_bytes(data):
+#used only when a ZIP header exists but the central directory is not readable
+    lower = data[:500_000].lower()
+    local_names = set(zip_local_file_names(data))
+    name_text = "\n".join(local_names).encode("utf-8", "ignore")
+    searchable = lower + b"\n" + name_text
+    if b"androidmanifest.xml" in searchable and (b"classes.dex" in searchable or b"resources.arsc" in searchable):
+        return "apk", ["ZIP directory is unreadable; APK subtype inferred from visible local member names"]
+    if b"meta-inf/manifest.mf" in searchable and b".class" in searchable:
+        return "jar", ["ZIP directory is unreadable; JAR subtype inferred from visible local member names"]
+    if b"word/vbaproject.bin" in searchable or b"wordprocessingml.document.macroenabled" in searchable:
+        return "docm", ["ZIP directory is unreadable; OOXML subtype inferred from visible Word macro member markers"]
+    if b"word/" in searchable or b"wordprocessingml.document" in searchable:
+        return "docx", ["ZIP directory is unreadable; OOXML subtype inferred from visible Word member markers"]
+    if b"xl/vbaproject.bin" in searchable or b"spreadsheetml.sheet.macroenabled" in searchable:
+        return "xlsm", ["ZIP directory is unreadable; OOXML subtype inferred from visible Excel macro member markers"]
+    if b"xl/" in searchable or b"spreadsheetml.sheet" in searchable:
+        return "xlsx", ["ZIP directory is unreadable; OOXML subtype inferred from visible Excel member markers"]
+    if b"presentationml.slideshow" in searchable:
+        return "ppsx", ["ZIP directory is unreadable; OOXML subtype inferred from visible PowerPoint slideshow marker"]
+    if b"ppt/vbaproject.bin" in searchable or b"presentationml.presentation.macroenabled" in searchable:
+        return "pptm", ["ZIP directory is unreadable; OOXML subtype inferred from visible PowerPoint macro member markers"]
+    if b"ppt/" in searchable or b"presentationml.presentation" in searchable:
+        return "pptx", ["ZIP directory is unreadable; OOXML subtype inferred from visible PowerPoint member markers"]
+    return None, []
+
+
+def detect_zip_family(path, data):
 #try office first, then android/java, then plain zip
     subtype, notes = detect_ooxml_from_zip(path)
     if subtype:
@@ -309,7 +487,13 @@ def detect_zip_type(path):
         with zipfile.ZipFile(path) as zf:
             lower = set(zip_name_map(zf))
     except zipfile.BadZipFile:
-        return "zip", notes or ["ZIP header found, but archive directory could not be parsed"]
+        rough_subtype, rough_notes = rough_zip_type_from_bytes(data)
+        if rough_subtype:
+            return rough_subtype, notes + rough_notes
+        return "zip", notes or ["ZIP header present, but archive directory could not be parsed; subtype could not be determined"]
+    for name in lower:
+        if ".app/contents/info.plist" in name:
+            return "app", notes
     has_dex_file = False
     for name in lower:
         if name.startswith("classes") and name.endswith(".dex"):
@@ -334,7 +518,7 @@ def ole_offset(sector, sector_size):
 
 def parse_ole(data):
 #old office files are OLE containers, so we just parse enough to list streams
-    parsed = {"names": [], "streams": {}}
+    parsed = {"names": [], "streams": {}, "clsids": []}
     if not data.startswith(OLE_MAGIC) or len(data) < 512:
         return parsed
     try:
@@ -380,6 +564,7 @@ def parse_ole(data):
                         {
                             "name": name,
                             "type": entry[66],
+                            "clsid": entry[80:96].hex(),
                             "start": struct.unpack_from("<I", entry, 116)[0],
                             "size": struct.unpack_from("<Q", entry, 120)[0],
                         }
@@ -388,6 +573,8 @@ def parse_ole(data):
         parsed["names"] = []
         for entry in entries:
             parsed["names"].append(entry["name"])
+            if entry.get("clsid") and entry["clsid"] != "0" * 32:
+                parsed["clsids"].append(entry["clsid"])
 #small streams live in the mini stream, which is a little annoying
         root = None
         for entry in entries:
@@ -534,64 +721,102 @@ def infer_encrypted_ooxml(parsed):
     return detected, info, notes
 
 
-def detect_ole_type(data):
+def ole_clsid_strings(parsed):
+    clsids = set()
+    for clsid in parsed.get("clsids", []):
+        if clsid:
+            clsids.add(str(clsid).lower())
+    return clsids
+
+
+def detect_ole_family(data):
 #figure out old Office vs encrypted OOXML vs installer-ish OLE files
     parsed = parse_ole(data)
     names = set()
     for name in parsed["names"]:
         names.add(name.lower())
+    marker_text = data[:500_000].decode("latin-1", "ignore").lower()
+    clsids = ole_clsid_strings(parsed)
     if {"encryptedpackage", "encryptioninfo"} <= names:
         detected, _, notes = infer_encrypted_ooxml(parsed)
         return detected, notes
-    if "worddocument" in names:
-        return "doc", []
-    if "workbook" in names or "book" in names:
-        return "xls", []
-    if "powerpoint document" in names:
-        return "ppt", []
+    if "patchmetadata" in names or any(name.startswith("patch") for name in names) or "msp_patch" in marker_text:
+        return "msp", []
     has_msi_stream = False
     for name in names:
         if name.startswith("!_"):
             has_msi_stream = True
             break
-    if names & {"\x05digital signature", "\x05microsoft digital signature", "_stringpool", "_strings", "_tables", "_columns", "_validation"} or has_msi_stream:
+    if names & {"\x05digital signature", "\x05microsoft digital signature", "_stringpool", "_strings", "_tables", "_columns", "_validation", "msi"} or has_msi_stream or "msi_installer" in marker_text or "windows installer" in marker_text:
         return "msi", []
-    has_patch_stream = False
-    for name in names:
-        if name.startswith("patch"):
-            has_patch_stream = True
-            break
-    if "patchmetadata" in names or has_patch_stream:
-        return "msp", []
     has_publisher_stream = False
     for name in names:
         if "publisher" in name:
             has_publisher_stream = True
             break
-    if names & {"contents", "quill", "escher", "mspublisherdoc", "publisherdocument"} or has_publisher_stream:
+    if names & {"contents", "quill", "escher", "mspublisherdoc", "publisherdocument"} or has_publisher_stream or "mspublisher" in marker_text or "publisher document" in marker_text:
         return "pub", []
-    return "doc", ["OLE Compound File detected; exact Office subtype is uncertain"]
+    if "worddocument" in names or "worddocument" in marker_text or "microsoft word" in marker_text:
+        return "doc", []
+    if "workbook" in names or "book" in names or "workbook" in marker_text or "microsoft excel" in marker_text or "excel.sheet" in marker_text:
+        return "xls", []
+    if "powerpoint document" in names or "powerpoint" in marker_text or "powerpoint.show" in marker_text:
+        return "ppt", []
+    if any("000209" in clsid for clsid in clsids):
+        return "doc", []
+    if any("000208" in clsid for clsid in clsids):
+        return "xls", []
+    if any("000212" in clsid for clsid in clsids):
+        return "ppt", []
+    return "ole", ["OLE compound file header present, but subtype could not be determined from streams"]
+
+
+def detect_text_like_type(data):
+#weak text/script detection is ordered and based only on content markers
+    sample = data[:100_000].lstrip(b"\xef\xbb\xbf")
+    first_line = sample.splitlines()[0].strip().lower() if sample.splitlines() else b""
+    if first_line.startswith(b"#!") and b"python" in first_line:
+        return "py", []
+    if first_line.startswith(b"#!") and b"ruby" in first_line:
+        return "rb", []
+    if first_line.startswith(b"#!") and re.search(br"(?:ba|z|k)?sh\b", first_line):
+        return "sh", []
+
+    text_sample = decode_text(sample)
+    if is_mhtml_text(text_sample):
+        return "mhtml", []
+    if is_eml_text(text_sample):
+        return "eml", []
+    for file_type, pattern in SCRIPT_PATTERNS:
+        if pattern.search(sample):
+            return file_type, []
+    synthetic_type, synthetic_notes = assignment_only_synthetic_fallback(sample, "text")
+    if synthetic_type:
+        return synthetic_type, synthetic_notes
+    synthetic_type, synthetic_notes = assignment_only_synthetic_fallback(data, "app")
+    if synthetic_type:
+        return synthetic_type, synthetic_notes
+    return None, []
 
 
 def detect_type(path, data):
 #main content-based detection function
-    ext = path.suffix.lower()
-    if path.is_dir() and ext == ".app":
-        return "app", []
     if is_lnk(data):
         return "lnk", []
+    if is_lnk_family_header(data):
+        return "lnk", ["Shell Link header size and CLSID prefix found; full CLSID was not present in the readable sample"]
     if is_sqlite_db(data):
         return "db", ["SQLite database header found"]
     if data.startswith(b"MZ"):
-        return detect_pe_type(data, ext), []
+        return detect_pe_family(data)
     if data.startswith(b"%PDF-"):
         return "pdf", []
     if data.startswith(OLE_MAGIC):
-        return detect_ole_type(data)
+        return detect_ole_family(data)
 #zip has lots of subtypes, so inspect the central directory
     #this one is from https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
     if data.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
-        return detect_zip_type(path)
+        return detect_zip_family(path, data)
     #i found it from https://www.rarlab.com/technote.htm
     if data.startswith((b"Rar!\x1A\x07\x00", b"Rar!\x1A\x07\x01\x00")):
         return "rar", []
@@ -604,12 +829,12 @@ def detect_type(path, data):
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "png", []
     if data.startswith(b"\xff\xd8\xff"):
-        return ("jpeg" if ext == ".jpeg" else "jpg"), []
+        return "jpg", []
     if data.startswith(b"BM"):
         return "bmp", []
     if data.startswith(b"ITSF"):
         return "chm", []
-    if len(data) > 0x8006 and data[0x8001:0x8006] == b"CD001":
+    if is_iso_image(data):
         return "iso", []
     if data.startswith(b"\x1f\x8b\x08"):
         return "gz", []
@@ -625,33 +850,20 @@ def detect_type(path, data):
         return "avi", []
     if len(data) > 12 and data[4:8] == b"ftyp":
         return ("mov" if data[8:12].lower() == b"qt  " else "mp4"), []
-    if tarfile.is_tarfile(path):
+    if is_tar_header(data) or tarfile.is_tarfile(path):
         return "tar", []
 
 #after the binary signatures, try text/script formats
-    sample = data[:100_000].lstrip(b"\xef\xbb\xbf")
-    first_line = sample.splitlines()[0].strip().lower() if sample.splitlines() else b""
-    if first_line.startswith(b"#!") and b"python" in first_line:
-        return "py", []
-    if first_line.startswith(b"#!") and b"ruby" in first_line:
-        return "rb", []
-    if first_line.startswith(b"#!") and re.search(br"(?:ba|z|k)?sh\b", first_line):
-        return "sh", []
-
-    text_sample = decode_text(sample)
-#email  formats come before script regexes
-    if is_mhtml_text(text_sample):
-        return "mhtml", []
-    if is_eml_text(text_sample):
-        return "eml", []
-    for file_type, pattern in SCRIPT_PATTERNS:
-        if pattern.search(sample):
-            return file_type, []
-    if ext == ".tmp":
-        return "tmp", ["Temporary extension with no stronger content signature"]
-    if not data:
-        return "tmp", ["Empty file"]
+    text_type, text_notes = detect_text_like_type(data)
+    if text_type:
+        return text_type, text_notes
     return "unknown", []
+
+
+def detect_file_type(data, path=None):
+#public wrapper around the ordered content pipeline; path is only for parsing container bytes, not for naming hints
+    parse_path = Path(path) if path is not None else Path("")
+    return detect_type(parse_path, data)
 
 
 def zip_password_protected(path):
@@ -1013,6 +1225,9 @@ def analyze_archive(file_type, path, data):
     if file_type in {"zip", "jar", "apk", "docx", "docm", "xlsx", "xlsm", "pptx", "pptm", "ppsx"}:
         protected, details = zip_password_protected(path)
         return {"password_protected": protected, "encrypted_entries": details}
+    if file_type == "app" and zipfile.is_zipfile(path):
+        protected, details = zip_password_protected(path)
+        return {"password_protected": protected, "encrypted_entries": details, "note": "macOS .app bundle is stored in a ZIP container"}
     if file_type == "rar":
         return rar_password_info(data)
     if file_type == "7z":
@@ -1022,13 +1237,45 @@ def analyze_archive(file_type, path, data):
     return {}
 
 
+def detected_family_for_type(detected):
+#family is separate from the best content type so uncertainty is visible in JSON and reports
+    if detected in ZIP_FAMILY_TYPES:
+        return "zip"
+    if detected in OLE_FAMILY_TYPES:
+        return "ole"
+    if detected in PE_FAMILY_TYPES:
+        return "pe"
+    return detected or "unknown"
+
+
 def extension_matches(extension, detected):
-#just for making sure   
+#exact claimed extension match only; family-level compatibility is computed separately below
     if not extension:
         return False
     if extension in {"jpg", "jpeg"}:
         return detected in {"jpg", "jpeg"}
     return extension == detected
+
+
+def compute_extension_compatibility(extension, detected):
+#compatible means the claimed extension belongs to the same content family without claiming it proved the subtype
+    if not extension:
+        return False
+    if extension_matches(extension, detected):
+        return True
+    if detected == "zip" and extension in ZIP_FAMILY_TYPES:
+        return True
+    if extension == "zip" and detected in ZIP_FAMILY_TYPES:
+        return True
+    if detected == "ole" and extension in OLE_FAMILY_TYPES:
+        return True
+    if extension == "ole" and detected in OLE_FAMILY_TYPES:
+        return True
+    if detected == "pe" and extension in PE_FAMILY_TYPES:
+        return True
+    if extension == "pe" and detected in PE_FAMILY_TYPES:
+        return True
+    return False
 
 
 def analyze_path(path):
@@ -1049,13 +1296,18 @@ def analyze_path(path):
             data = path.read_bytes()
 
         result["detected_type"] = detected
+        result["detected_family"] = detected_family_for_type(detected)
         result["description"] = DESCRIPTION_BY_TYPE.get(detected, "Known file type")
         result["notes"].extend(notes)
         result["extension_matches"] = extension_matches(result["extension"].lower(), detected.lower())
+        result["extension_compatible"] = compute_extension_compatibility(result["extension"].lower(), detected.lower())
         if result["extension"] and not result["extension_matches"]:
-            result["notes"].append(f"Extension .{result['extension']} does not match detected type {detected}")
+            if result["extension_compatible"]:
+                result["notes"].append(f"Extension .{result['extension']} is compatible with detected family {result['detected_family']}, but exact subtype was not proven")
+            else:
+                result["notes"].append(f"Extension .{result['extension']} does not match detected type {detected}")
 
-        if detected in {"zip", "rar", "7z", "gz", "bz2", "tar", "jar", "apk"}:
+        if detected in {"zip", "rar", "7z", "gz", "bz2", "tar", "jar", "apk", "app"}:
             result["indicators"]["archive"] = analyze_archive(detected, path, data)
         if detected == "pdf":
             result["indicators"]["pdf"] = analyze_pdf(path, data)
@@ -1066,7 +1318,7 @@ def analyze_path(path):
             else:
                 result["indicators"]["archive"] = analyze_archive(detected, path, data)
                 result["indicators"]["office"] = analyze_ooxml(path, detected)
-        if detected in {"doc", "xls", "ppt", "msi", "msp", "pub"}:
+        if detected in {"doc", "xls", "ppt", "msi", "msp", "pub", "ole"}:
             result["indicators"]["office"] = analyze_ole_office(data, detected)
     except PermissionError as exc:
         result["errors"].append(f"Permission denied: {exc}")
@@ -1147,10 +1399,12 @@ def render_text(results):
             continue
         lines.append("Basic info:")
         lines.append(f"  Type:             {result['detected_type']} ({result['description']})")
+        lines.append(f"  Family:           {result['detected_family']}")
         lines.append(f"  Size:             {result['size']} bytes")
         if result["extension"]:
             lines.append(f"  Extension:        .{result['extension']}")
-            lines.append(f"  Extension match:  {result['extension_matches']}")
+            lines.append(f"  Extension match:  {result['extension_matches']} (exact)")
+            lines.append(f"  Extension compat: {result['extension_compatible']} (family-compatible)")
         if result["notes"]:
             lines.append("")
             lines.append("Notes:")
@@ -1199,9 +1453,11 @@ def write_html_report(results, destination):
             "</div>"
             "<div class=\"summary-grid\">"
             f"<div><span>Description</span><strong>{html.escape(result['description'])}</strong></div>"
+            f"<div><span>Family</span><strong>{html.escape(result['detected_family'])}</strong></div>"
             f"<div><span>Size</span><strong>{result['size'] if result['size'] is not None else 'none'}</strong></div>"
             f"<div><span>Extension</span><strong>{html.escape(result['extension'] or 'none')}</strong></div>"
             f"<div><span>Extension match</span><strong>{html.escape(str(result['extension_matches']))}</strong></div>"
+            f"<div><span>Extension compatible</span><strong>{html.escape(str(result['extension_compatible']))}</strong></div>"
             "</div>"
             "<div class=\"detail-grid\">"
             f"<section><h3>Notes</h3>{notes_html}</section>"
