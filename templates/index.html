@@ -16,14 +16,25 @@
       <form id="analyze-form">
         <div class="file-control">
           <label for="files">Files</label>
-          <input id="files" name="files" type="file" multiple required>
+          <input id="files" name="files" type="file" multiple>
         </div>
         <button type="submit">Analyze files</button>
       </form>
+      <div class="selected-panel" aria-label="Selected files">
+        <div class="selected-header">
+          <strong id="selected-count">No files selected</strong>
+          <button id="clear-files" class="secondary-button" type="button" hidden>Clear all</button>
+        </div>
+        <ul id="selected-files" class="selected-files"></ul>
+      </div>
       <p id="status" class="status" role="status"></p>
     </section>
 
     <section class="results" aria-label="Analysis results">
+      <div class="results-actions">
+        <button id="copy-results" class="secondary-button" type="button" disabled>Copy JSON</button>
+        <button id="download-results" class="secondary-button" type="button" disabled>Download JSON</button>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>

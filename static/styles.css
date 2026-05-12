@@ -75,9 +75,66 @@ button {
   white-space: nowrap;
 }
 
+.secondary-button,
+.remove-file {
+  min-height: 32px;
+  border: 1px solid #cfd7e3;
+  background: #ffffff;
+  color: #334155;
+  padding: 0 12px;
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.65;
+}
+
+.selected-panel {
+  margin-top: 14px;
+  border-top: 1px solid #e5e9f0;
+  padding-top: 14px;
+}
+
+.selected-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.selected-header strong {
+  color: #334155;
+  font-size: 14px;
+}
+
+.selected-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.selected-files li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  border: 1px solid #d8dee7;
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 6px 6px 6px 10px;
+}
+
+.selected-file-name {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #1f2933;
+  font-size: 13px;
 }
 
 .status {
@@ -91,6 +148,13 @@ button:disabled {
   background: #ffffff;
   border: 1px solid #d8dee7;
   border-radius: 8px;
+}
+
+.results-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
 table {
@@ -226,6 +290,12 @@ tbody tr:last-child td {
   color: #176672;
 }
 
+.type-text {
+  border-color: #c2c7cf;
+  background: #f5f7fa;
+  color: #384250;
+}
+
 .type-image {
   border-color: #f2b3cf;
   background: #fde7f0;
@@ -242,6 +312,12 @@ tbody tr:last-child td {
   border-color: #b6c2d1;
   background: #edf1f5;
   color: #425466;
+}
+
+.type-corrupt {
+  border-color: #f0a4a4;
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .type-unknown {
@@ -285,5 +361,27 @@ pre {
   input[type="file"] {
     min-width: 0;
     width: 100%;
+  }
+
+  .selected-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .selected-files {
+    display: grid;
+  }
+
+  .selected-files li {
+    justify-content: space-between;
+  }
+
+  .selected-file-name {
+    max-width: 100%;
+  }
+
+  .results-actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 }
