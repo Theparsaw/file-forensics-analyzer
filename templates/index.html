@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>File Type Analyzer</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="page">
+    <header class="header">
+      <h1>File Type Analyzer</h1>
+    </header>
+
+    <section class="upload-panel" aria-label="Upload files for analysis">
+      <form id="analyze-form">
+        <div class="file-control">
+          <label for="files">Files</label>
+          <input id="files" name="files" type="file" multiple required>
+        </div>
+        <button type="submit">Analyze files</button>
+      </form>
+      <p id="status" class="status" role="status"></p>
+    </section>
+
+    <section class="results" aria-label="Analysis results">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Type</th>
+              <th>Description</th>
+              <th>Size</th>
+              <th>Extension</th>
+              <th>Match</th>
+              <th>Notes</th>
+              <th>Indicators</th>
+              <th>Errors</th>
+            </tr>
+          </thead>
+          <tbody id="results-body">
+            <tr>
+              <td colspan="9" class="empty">No files analyzed yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
